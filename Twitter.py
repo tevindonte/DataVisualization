@@ -1,13 +1,16 @@
 import nest_asyncio
 nest_asyncio.apply()
 import pandas
+import plotly.express as px
 import numpy as np
 import matplotlib.pyplot as plt
+from nltk import bigrams
 import twint
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from afinn import Afinn
-
-
+from nltk.corpus import sentiwordnet as swn
+from wordcloud import WordCloud
+import csv
 
 
 
@@ -29,55 +32,88 @@ twint.run.Search(config)
 print('Scraping Done!')
 config.Pandas = True
 
-
-afinn = Afinn(language='en') # Words scores range from minus five (negative) to plus five (positive).
+af = Afinn(language='en') # Words scores range from minus five (negative) to plus five (positive).
+af = Afinn(emoticons=True) 
 df = pandas.read_csv ('Data.csv')
 tweetcount=len(df)-1
-df['afinn_score'] = df['tweet'].apply(afinn.score)
-def splitter(text_string):     #Calculate the number of words in a string
-    return len(text_string.split())
-df['splitter'] = df['tweet'].apply(splitter)
-#df['word_count'].describe()
-#df['afinn_score'].describe()
-columns_to_display = ['tweet', 'afinn_score']
-pandas.set_option('max_colwidth', 100)
-#df.sort_values(by='afinn_score')[columns_to_display].head(10)
-df['afinn_adjusted'] = df['afinn_score'] / df['splitter'] * 100 # to make the results more readable, the adjustment is multiplied by 100.
+tweet = np.array(df['tweet']) #Create an array that has all times
+time = np.array(df['time']) #Create an array that has all times
+test_tweet = tweet[0:tweetcount+1] # extract data for model evaluation
+test_time = time[0:tweetcount+1]
 
-
-analyzer = SentimentIntensityAnalyzer()
-sentiment = df['tweet'].apply(analyzer.polarity_scores)
-sent = pandas.DataFrame(sentiment.tolist())
-def vaderize(df, textfield):
-    '''Compute the Vader polarity scores for a textfield.
-    Returns scores and original dataframe.'''
-
-    analyzer = SentimentIntensityAnalyzer()
-
-    print('Estimating polarity scores for %d cases.' % len(df))
-    sentiment = df[textfield].apply(analyzer.polarity_scores)
-
-    # convert to dataframe
-    sdf = pandas.DataFrame(sentiment.tolist()).add_prefix('vader_')
-
-    # merge dataframes
-    df_combined = pandas.concat([df,sdf], axis = 1)
-    return df_combined
-vaderized = vaderize(df, 'tweet')
-sentiment_variables = ['afinn_adjusted', 'vader_neg', 'vader_neu', 'vader_pos']
-vaderized['vader_compound'].plot(kind='hist')
-vaderized.plot.scatter(x='vader_pos', y = 'vader_neg')
-
-def en(x):
-    if x =='en':
-        return 'English'
+sentiment_polarity = [af.score(tweet) for tweet in test_tweet] #Apply Scores
+possent=[] #Range of values that are positive separated
+negsent=[] #Range of values that are negative separated
+for item in sentiment_polarity:
+    if item < 0:
+        negsent.append(item)
     else:
-        return 'Other'
-tweeter=df.loc[:,"tweet"]
+        possent.append(item)
 
-tweeter['en']=tweeter['language'].apply(lambda x: en(x))
-ax = tweeter['en'].value_counts().plot.pie(autopct='%1.1f%%',title='Share of English in All Languages')
-ax.set_ylabel('')
+np.savetxt("pos.csv", possent, delimiter=", ", fmt="% s", header='Positive') #Creates csv of Positives
+np.savetxt("neg.csv", negsent, delimiter=", ", fmt="% s", header='Negative') #Creates csv of Negatives
 
-df_lan = tweeter[tweeter['language'] != 'ja']
-df_lan['language'].value_counts().plot(kind='bar')
+
+dfpos=pandas.read_csv ('pos.csv')
+dfneg=pandas.read_csv ('neg.csv')
+
+dfconcat=pandas.concat([dfpos,dfneg]) #Combines both
+nulls = {'NULL', 'null', 'None', ''}
+#dfconcat.to_csv('bothconcat.csv', index=False) #Turns it into csv
+dfboth=pandas.read_csv('bothconcat.csv')
+poscount=(len(dfpos))
+negcount=(len(dfneg))
+dfboth['# Negative'] = dfboth['# Negative'].fillna(0)
+dfboth['# Positive'] = dfboth['# Positive'].fillna(0)
+#dfboth.to_csv('nanconcat.csv', index=False) #Turns it into csv
+labels = ['Positive', 'Negative'] #Axis labels
+data = [poscount, negcount] #Axis
+fig = plt.figure(figsize =(10, 7))
+plt.pie(data, labels = labels) #Matplot Pie Graph
+# show plot
+plt.show()
+print("The number of positive tweets: ", poscount)
+print("The number of negative tweets: ", negcount)
+
+
+predicted_sentiments = ['positive' if score >= 1.0 else 'negative' for score in sentiment_polarity] #Change Scores to negative and positive
+poscount = predicted_sentiments.count('positive') #Count positive tweets
+negcount = predicted_sentiments.count('negative') #Count negative tweets
+bothcount=poscount+negcount
+
+tweetslist = df['tweet'].tolist() #Turn tweets to list
+timelist = df['time'].tolist() #Turn time to list
+rangerp = dfpos['# Positive'].tolist() #Turn tweets to list
+rangern = dfneg['# Negative'].tolist() #Turn tweets to list
+
+rangerp.plot(kind='bar')
+
+
+unique_string=(" ").join(tweetslist) #WordCloud Setup
+wordcloud = WordCloud(width = 1000, height = 500).generate(unique_string)
+plt.figure(figsize=(15,8))
+plt.imshow(wordcloud)
+plt.axis("off")
+plt.savefig("your_file_name"+".png", bbox_inches='tight')
+plt.show()
+plt.close()
+
+
+data2=poscount+negcount
+
+plt.plot(dfpos, color='magenta', marker='o',mfc='pink' ) #plot the data
+plt.xticks(range(0,data2)) #set the tick frequency on x-axis
+plt.ylabel('frequency') #set the label for y axis
+plt.xlabel('number of tweets') #set the label for x-axis
+plt.title("Positive Frequency") #set the title of the graph
+
+plt.plot(dfneg, color='red', marker='o',mfc='pink' ) #plot the data
+plt.xticks(range(0,data2)) #set the tick frequency on x-axis
+plt.ylabel('frequency') #set the label for y axis
+plt.xlabel('number of tweets') #set the label for x-axis
+plt.title("Negative Frequency") #set the title of the graph
+print('The number of tweets :', data2)
+plt.show() #display the graph
+
+
+
